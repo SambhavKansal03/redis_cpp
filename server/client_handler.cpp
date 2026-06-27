@@ -1,16 +1,17 @@
 #include "server/client_handler.h"
+#include "server/logger.h"
 #include <unistd.h>
 #include <string>
 #include <vector>
 #include <sstream>
-#include <iostream>
 #include <cstring>
 
 // ── Helpers ────────────────────────────────────────────────
 
 static void send_response(int fd, const std::string& msg) {
     std::string response = msg + "\r\n";
-    write(fd, response.c_str(), response.size());
+    // Ignore partial-write edge case for now — production code would retry
+    [[maybe_unused]] ssize_t _ = write(fd, response.c_str(), response.size());
 }
 
 static std::vector<std::string> parse_command(const std::string& line) {
@@ -35,7 +36,6 @@ static std::string dispatch(const std::vector<std::string>& tokens, KVStore& sto
 
     std::string cmd = to_upper(tokens[0]);
 
-    // SET key value [ttl_ms]
     if (cmd == "SET") {
         if (tokens.size() < 3) return "-ERR wrong number of args for SET";
         long long ttl = 0;
@@ -44,7 +44,6 @@ static std::string dispatch(const std::vector<std::string>& tokens, KVStore& sto
         return "+OK";
     }
 
-    // GET key
     if (cmd == "GET") {
         if (tokens.size() < 2) return "-ERR wrong number of args for GET";
         auto val = store.get(tokens[1]);
@@ -52,26 +51,22 @@ static std::string dispatch(const std::vector<std::string>& tokens, KVStore& sto
         return "+" + val.value();
     }
 
-    // DEL key
     if (cmd == "DEL") {
         if (tokens.size() < 2) return "-ERR wrong number of args for DEL";
         bool deleted = store.del(tokens[1]);
         return deleted ? ":1" : ":0";
     }
 
-    // EXPIRE key ttl_ms
     if (cmd == "EXPIRE") {
         if (tokens.size() < 3) return "-ERR wrong number of args for EXPIRE";
         bool ok = store.expire(tokens[1], std::stoll(tokens[2]));
         return ok ? ":1" : ":0";
     }
 
-    // DBSIZE
     if (cmd == "DBSIZE") {
         return ":" + std::to_string(store.dbsize());
     }
 
-    // KEYS
     if (cmd == "KEYS") {
         auto ks = store.keys();
         if (ks.empty()) return "*0";
@@ -80,13 +75,11 @@ static std::string dispatch(const std::vector<std::string>& tokens, KVStore& sto
         return result;
     }
 
-    // FLUSHALL
     if (cmd == "FLUSHALL") {
         store.flushall();
         return "+OK";
     }
 
-    // PING
     if (cmd == "PING") {
         return "+PONG";
     }
@@ -112,12 +105,12 @@ void handle_client_connection(int client_fd, KVStore& store) {
 
         if (line.empty()) continue;
 
-        std::cout << "[client fd=" << client_fd << "] received: " << line << "\n";
+        LOG("[fd=" << client_fd << "] >> " << line);
 
         auto tokens   = parse_command(line);
         auto response = dispatch(tokens, store);
 
-        std::cout << "[client fd=" << client_fd << "] sending: " << response << "\n";
+        LOG("[fd=" << client_fd << "] << " << response);
         send_response(client_fd, response);
     }
 }

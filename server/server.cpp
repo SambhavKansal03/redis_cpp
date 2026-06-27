@@ -1,17 +1,18 @@
 #include "server/server.h"
 #include "server/client_handler.h"
+#include "server/logger.h"
 
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <stdexcept>
-#include <iostream>
 #include <cstring>
 
 Server::Server(int port, KVStore& store, size_t num_threads)
     : port_(port), server_fd_(-1), store_(store), pool_(num_threads)
 {
     setup_socket();
+    LOG("[server] thread pool size: " << num_threads);
 }
 
 void Server::setup_socket() {
@@ -33,13 +34,12 @@ void Server::setup_socket() {
         throw std::runtime_error("Failed to bind to port " + std::to_string(port_));
     }
 
-    // Increased backlog from 5 → 128: with a thread pool we can handle
-    // bursts of connections without dropping them at the OS level.
+    // Backlog 128: handles connection bursts without dropping at OS level
     if (listen(server_fd_, 128) < 0) {
         throw std::runtime_error("Failed to listen");
     }
 
-    std::cout << "[server] listening on port " << port_ << "\n";
+    LOG("[server] listening on port " << port_);
 }
 
 void Server::run() {
@@ -51,24 +51,16 @@ void Server::run() {
                                (struct sockaddr*)&client_addr,
                                &client_len);
         if (client_fd < 0) {
-            std::cerr << "[server] accept failed\n";
+            LOG("[server] accept failed");
             continue;
         }
 
-        std::cout << "[server] client connected (fd=" << client_fd << ")\n";
+        LOG("[server] client connected (fd=" << client_fd << ")");
 
-        // Phase 3: instead of blocking here to handle the client,
-        // we hand the client_fd off to the thread pool.
-        //
-        // The lambda captures client_fd by value (copies the int) and
-        // store_ by reference (safe — store_ outlives all threads).
-        //
-        // The accept loop immediately returns to accept the next client —
-        // the pool worker handles this client in the background.
         pool_.enqueue([client_fd, &store = store_] {
             handle_client_connection(client_fd, store);
             close(client_fd);
-            std::cout << "[server] client disconnected (fd=" << client_fd << ")\n";
+            LOG("[server] client disconnected (fd=" << client_fd << ")");
         });
     }
 }

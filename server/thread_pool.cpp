@@ -1,5 +1,5 @@
 #include "server/thread_pool.h"
-#include <iostream>
+#include "server/logger.h"
 
 ThreadPool::ThreadPool(size_t num_threads) {
     // Spin up num_threads worker threads.
@@ -34,7 +34,7 @@ ThreadPool::ThreadPool(size_t num_threads) {
             }
         });
     }
-    std::cout << "[pool] started " << num_threads << " worker threads\n";
+    LOG("[pool] started " << num_threads << " worker threads");
 }
 
 ThreadPool::~ThreadPool() {
@@ -48,7 +48,7 @@ ThreadPool::~ThreadPool() {
     for (auto& t : workers_) {
         if (t.joinable()) t.join();
     }
-    std::cout << "[pool] all worker threads stopped\n";
+    LOG("[pool] all worker threads stopped");
 }
 
 void ThreadPool::enqueue(std::function<void()> task) {
